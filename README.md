@@ -44,10 +44,10 @@ template_string = """
 !}}
 
 {{# Fill with content #}}
-{{!
+{{%
 	# Render time expression
 	'<br>'.join([ f'<h1>{user}</h1>' for user in lots_of_userdata ])
-!}}
+%}}
 """
 
 # Load
