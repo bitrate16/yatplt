@@ -290,6 +290,32 @@ scope = {
 print(await template.render_file('output.html', scope=scope, init_ok=True, none_ok=True, strip_string=True, reuse_scope=True))
 ```
 
+# File watching based templates
+
+This type of templates is a simple wrapper for template class that automatically updates template from dist on change. Function `.update()` is called before each render to fetch actual template based on last file update time.
+
+```python
+tmpl = yatplt.FileWatcherTemplate(
+	filename='mytemplate.txt',
+	context={
+		'useful': lambda x: x ** 2
+	},
+	init_none_ok=True,
+	init_scope={
+		'hello': 'world'
+	},
+	init_reuse_scope=True
+)
+
+# This call automatically loads tempalte from file, 
+#  calls .init() with init_* parameters of constructor and performs render
+# This method has the same signature as regular Tempalte method except auto_reload argument
+tmpl.render_string(auto_reload=True)
+
+# Manually flush template
+await tmpl.update()
+``` 
+
 # Footer
 
 ~~Oh no, my PyHP colletion!~~

@@ -41,6 +41,7 @@ import ast
 import dis
 import typing
 import asyncio
+import os
 
 
 # Default values for block syntax
@@ -955,5 +956,183 @@ class Template:
 	
 	def __repr__(self):
 		return ('\n' if self.template_parser.strip_string else '').join([ str(f) for f in self.fragments ])
+
+
+class FileWatcherTemplate:
+	"""
+	Class that defines cached Template wrapper based on filesystem template 
+	watching. Template is loaded from silesystem and revalidated each time when 
+	source template file is updated.
 	
+	Interfaces all render methods from base template class and supports 
+	additional up_to_date flag.
+	"""
+	
+	def __init__(
+			self, 
+			filename: str, 
+			template_parser: TemplateParser=None, 
+			context: dict=None, 
+			init_scope: dict=None, 
+			init_strip_string: bool=True,
+			init_none_ok: bool=False,
+			init_reuse_scope: bool=True
+		):
+		"""
+		Create shadow tempalte without loading. Loading is performed with 
+		manual call to `update()` or on `.render()` call.
+		
+		`init_` parameters are used to define arguments for late `.init()` call.
+		"""
+		
+		self.filename        = filename
+		self.timestamp       = None
+		self.template        = None
+		# Lock required to update template from disk
+		self.template_lock   = asyncio.Lock()
+		self.template_parser = template_parser or TemplateParser()
+		self.context         = context
+		self.init_scope        = init_scope
+		self.init_strip_string = init_strip_string
+		self.init_none_ok      = init_none_ok
+		self.init_reuse_scope  = init_reuse_scope
+	
+	def is_up_to_date(self):
+		"""
+		Returns True if Template is up to date. Template us up to date if it was 
+		loaded and it's file still exists and have modification date less than 
+		it was when tempalte has been loaded.
+		"""
+		
+		return not (self.timestamp is None or not os.path.exists(self.filename) or os.path.getmtime(self.filename) > self.timestamp)
+	
+	async def update(self):
+		"""
+		Performs updating of the tempalte from file. if `is_up_to_date()` returs 
+		True, does nothing.
+		
+		If failure occurs, raises error depending on the situation.
+		Uses async lock to perfom syncronization between calls to prevent race 
+		condition and multiple parsings per tempalte.
+		"""
+		
+		if self.is_up_to_date():
+			return
+		
+		async with self.template_lock:
+			
+			# Fallback
+			if self.is_up_to_date():
+				return
+			
+			# Prevent keep in memory
+			self.template  = None
+			self.timestamp = None
+			
+			# Load
+			self.template = Template.from_file(self.filename, self.template_parser, self.context)
+			self.template.init(
+				scope=self.init_scope, 
+				strip_string=self.init_strip_string, 
+				none_ok=self.init_none_ok, 
+				init_ok=True, 
+				reuse_scope=self.init_reuse_scope
+			)
+			self.timestamp = os.path.getmtime(self.filename)
+	
+	async def render_generator(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True, auto_reload: bool=True) -> typing.AsyncGenerator[str, None]:
+		"""
+		Render given template using generator over fragments. Returns string 
+		representation of each fragment rendered.
+		
+		`scope` defines the arguments dict with arguemtns that are uniquly passed 
+		to each one-time block or expression wrapped into dict(), as locals.
+		
+		`strip_string` sets enable strip result of ExpressionTemplateFragment 
+		evaluation.
+		
+		`none_ok` sets ignore mode for None result of the expression. If set to 
+		True, None result is not used in future template rendering.
+		
+		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
+		directly as locals. Else it is passed wrapped into dict(scope) call.
+		
+		Automatically reloads template on file change if `auto_reload=True`.
+		"""
+		
+		if auto_reload:
+			await self.update()
+		
+		return await self.template.render_generator(scope=scope, strip_string=strip_string, none_ok=none_ok, reuse_scope=reuse_scope)
+	
+	async def render_string(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True, auto_reload: bool=True) -> str:
+		"""
+		Render given template into string from fragments. Returns string 
+		representation of entire template rendered.
+		
+		`scope` defines the arguments dict with arguemtns that are uniquly passed 
+		to each one-time block or expression wrapped into dict(), as locals.
+		
+		`strip_string` sets enable strip result of ExpressionTemplateFragment 
+		evaluation.
+		
+		`none_ok` sets ignore mode for None result of the expression. If set to 
+		True, None result is not used in future template rendering.
+		
+		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
+		directly as locals. Else it is passed wrapped into dict(scope) call.
+		
+		Automatically reloads template on file change if `auto_reload=True`.
+		"""
+		
+		if auto_reload:
+			await self.update()
+		
+		return await self.template.render_string(scope=scope, strip_string=strip_string, none_ok=none_ok, reuse_scope=reuse_scope)
+	
+	async def render_file(self, filename: str, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True, auto_reload: bool=True) -> str:
+		"""
+		Render given template into file from fragments.
+		
+		`scope` defines the arguments dict with arguemtns that are uniquly passed 
+		to each one-time block or expression wrapped into dict(), as locals.
+		
+		`strip_string` sets enable strip result of ExpressionTemplateFragment 
+		evaluation.
+		
+		`none_ok` sets ignore mode for None result of the expression. If set to 
+		True, None result is not used in future template rendering.
+		
+		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
+		directly as locals. Else it is passed wrapped into dict(scope) call.
+		
+		Requires call to .init() if template was not initialized.
+		"""
+		
+		if auto_reload:
+			await self.update()
+		
+		return await self.template.render_file(filename=filename, scope=scope, strip_string=strip_string, none_ok=none_ok, reuse_scope=reuse_scope)
+
+	def __str__(self):
+		if self.timestamp is None:
+			return None
+		
+		return self.template.__str__()
+	
+	def __repr__(self):
+		if self.timestamp is None:
+			return None
+		
+		return self.template.__repr__()
+
+
+
+
+
+
+
+
+
+
 
