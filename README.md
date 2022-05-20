@@ -19,7 +19,6 @@ template_string = """
 		'baz'
 	]
 	
-	global page_title
 	page_title = random.choice(titles)
 !}1}
 
@@ -34,7 +33,6 @@ template_string = """
 	# Render time block
 	import time
 	
-	global lots_of_userdata
 	lots_of_userdata = []
 	
 	# Simulate heavy work
@@ -54,10 +52,10 @@ template_string = """
 template = Template.from_string(source=template_string, context={})
 
 # Init
-await template.init(init_ok=True, strip_string=True, none_ok=True)
+await template.init(init_ok=True, strip_string=True, none_ok=True, reuse_scope=True)
 
 # Render
-result = tempalte.render_string(args={}, strip_string=True, none_ok=True)
+result = await tempalte.render_string(scope={}, strip_string=True, none_ok=True, reuse_scope=True)
 
 # Do anything
 print(result)
@@ -108,6 +106,14 @@ Following code defines global function that can be used in any code block later.
 !}1}
 ```
 
+Second approach is to use `reuse_scope` option that allows sharing variables between blocks:
+```python
+{1{!
+	def myfun(x):
+		return x + 37
+!}1}
+```
+
 Following code defines one-time expression that is evaluated during `.init()` call. After evaluation, result of this expression is inserted instead of this code block
 ```html
 <h1>
@@ -130,6 +136,7 @@ This type of blocks and expressions is different from one-time init blocks becau
 This type of blocks also supports statement blocks that can define global variables too:
 ```python
 {{!
+	# Use global keyword or set reuse_scope=True
 	global gettimestamp
 	
 	# Enclosure local variable
@@ -241,45 +248,46 @@ Rendering operation supports different variants of render. Basic rendering enfor
 Before render, initialize your template:
 ```python
 # This dict defines variables that will be copied as locals() for this .init() call
-args = {
+scope = {
 	'key': 'value'
 }
 
 # Set init_ok to True to ignore already initialized error
 # Set none_ok to True to ignore None value error in expressions
 # Set strip_string to True to strip output of the expression fragments
-template.init(args=args, init_ok=True, none_ok=True, strip_string=True)
+# Set reuse_scope to True to allow sharing local variables between multiple blocks
+template.init(scope=scope, init_ok=True, none_ok=True, strip_string=True)
 ```
 
 #### Simple rendering using generator rendering:
 ```python
-args = {
+scope = {
 	'username': 'Pegasko',
 	'action': 'Merp'
 }
 
-async for fragment in template.render_generator(args=args, init_ok=True, none_ok=True, strip_string=True):
+async for fragment in template.render_generator(scope=scope, init_ok=True, none_ok=True, strip_string=True, reuse_scope=True):
 	print(fragment)
 ```
 
 #### Simple rendering to string:
 ```python
-args = {
+scope = {
 	'username': 'bitrate16',
 	'action': '"DROP TABLE *;--'
 }
 
-print(await template.render_string(args=args, init_ok=True, none_ok=True, strip_string=True))
+print(await template.render_string(scope=scope, init_ok=True, none_ok=True, strip_string=True, reuse_scope=True))
 ```
 
 #### Simple rendering to file:
 ```python
-args = {
+scope = {
 	'username': 'odmin',
 	'action': 'hak for mani'
 }
 
-print(await template.render_file('output.html', args=args, init_ok=True, none_ok=True, strip_string=True))
+print(await template.render_file('output.html', scope=scope, init_ok=True, none_ok=True, strip_string=True, reuse_scope=True))
 ```
 
 # Footer

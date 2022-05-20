@@ -291,14 +291,14 @@ class TemplateFragment:
 		
 		return False
 	
-	async def render(self, context: dict, args: dict) -> typing.Union[str, typing.Awaitable[str]]:
+	async def render(self, context: dict, scope: dict) -> typing.Union[str, typing.Awaitable[str]]:
 		"""
 		Renders the given fragment inside given context with passed arguemnts.
 		
 		context is single for entire template and holds all values between 
 		.render() calls.
 		
-		args is unique dict per each call of .render().
+		scope is unique dict per each call of .render().
 		
 		Expected result of .render() call is string or coroutine returning 
 		string.
@@ -319,7 +319,7 @@ class StringTemplateFragment(TemplateFragment):
 	def is_one_time(self) -> bool:
 		return False
 	
-	async def render(self, context: dict, args: dict) -> typing.Union[str, typing.Awaitable[str]]:
+	async def render(self, context: dict, scope: dict) -> typing.Union[str, typing.Awaitable[str]]:
 		return self.value
 	
 	def __str__(self):
@@ -350,8 +350,8 @@ class ExpressionTemplateFragment(TemplateFragment):
 	def is_one_time(self) -> bool:
 		return self.one_time
 	
-	async def render(self, context: dict, args: dict) -> typing.Union[str, typing.Awaitable[str]]:
-		result = eval(self.evaluable, context, args)
+	async def render(self, context: dict, scope: dict) -> typing.Union[str, typing.Awaitable[str]]:
+		result = eval(self.evaluable, context, scope)
 		
 		if asyncio.iscoroutine(result):
 			return await result
@@ -393,8 +393,8 @@ class BlockTemplateFragment(TemplateFragment):
 	def is_one_time(self) -> bool:
 		return self.one_time
 	
-	async def render(self, context: dict, args: dict) -> typing.Union[str, typing.Awaitable[str]]:
-		result = eval(self.executable, context, args)
+	async def render(self, context: dict, scope: dict) -> typing.Union[str, typing.Awaitable[str]]:
+		result = eval(self.executable, context, scope)
 		if asyncio.iscoroutine(result):
 			await result
 		return None
@@ -733,7 +733,7 @@ class Template:
 		"""
 		return self.initialized
 	
-	async def init(self, args: dict=None, strip_string: bool=True, none_ok: bool=False, init_ok: bool=False) -> 'Template':
+	async def init(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, init_ok: bool=False, reuse_scope: bool=True) -> 'Template':
 		"""
 		Performs initialization of the Template and evaluates all one-time-init 
 		blocks.
@@ -743,7 +743,7 @@ class Template:
 		Template.from_file('template.thtml').init(init_ok=True).render()
 		```
 		
-		`args` defines the arguments dict with arguemtns that are uniquly passed 
+		`scope` defines the arguments dict with arguemtns that are uniquly passed 
 		to each one-time block or expression wrapped into dict(), as locals.
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
@@ -755,6 +755,9 @@ class Template:
 		`init_ok` sets ignore already initialized state of template and does 
 		nothing if template is already initialized.
 		
+		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
+		directly as locals. Else it is passed wrapped into dict(scope) call.
+		
 		After calling .init(), string representation of template will change and 
 		all one-time init fragments will be replaced with string fragments or 
 		removed depending on type.
@@ -765,17 +768,18 @@ class Template:
 				return self
 			raise RuntimeError('Template already initialized')
 		
+		scope = scope or {}
 		to_remove = []
 		for i, fragment in enumerate(self.fragments):
 			if fragment.is_one_time():
 				if isinstance(fragment, BlockTemplateFragment):
 					
 					to_remove.append(i)
-					await fragment.render(context=self.context, args=(dict(args) if args else {}))
+					await fragment.render(context=self.context, scope=(scope if reuse_scope else dict(scope)))
 					
 				elif isinstance(fragment, ExpressionTemplateFragment):
 					
-					value = await fragment.render(context=self.context, args=(dict(args) if args else {}))
+					value = await fragment.render(context=self.context, scope=(dict(scope) if scope else {}))
 					if not none_ok and value is None:
 						raise RuntimeError(f'Expression returned None at {fragment.evaluable.co_filename}')
 					
@@ -805,12 +809,12 @@ class Template:
 		self.initialized = True
 		return self
 	
-	async def render_generator(self, args: dict=None, strip_string: bool=True, none_ok: bool=False) -> typing.AsyncGenerator[str, None]:
+	async def render_generator(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True) -> typing.AsyncGenerator[str, None]:
 		"""
 		Render given template using generator over fragments. Returns string 
 		representation of each fragment rendered.
 		
-		`args` defines the arguments dict with arguemtns that are uniquly passed 
+		`scope` defines the arguments dict with arguemtns that are uniquly passed 
 		to each one-time block or expression wrapped into dict(), as locals.
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
@@ -819,20 +823,24 @@ class Template:
 		`none_ok` sets ignore mode for None result of the expression. If set to 
 		True, None result is not used in future template rendering.
 		
+		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
+		directly as locals. Else it is passed wrapped into dict(scope) call.
+		
 		Requires call to .init() if template was not initialized.
 		"""
 		
 		if not self.initialized:
 			raise RuntimeError('Template not initialized')
-			
+		
+		scope = scope or {}
 		for fragment in self.fragments:
 			if isinstance(fragment, BlockTemplateFragment):
 				
-				await fragment.render(context=self.context, args=(dict(args) if args else {}))
+				await fragment.render(context=self.context, scope=(scope if reuse_scope else dict(scope)))
 				
 			else:
 				
-				value = await fragment.render(context=self.context, args=(dict(args) if args else {}))
+				value = await fragment.render(context=self.context, scope=(dict(scope) if scope else {}))
 				if not none_ok and value is None:
 					raise RuntimeError(f'Expression returned None at {fragment.evaluable.co_filename}')
 				
@@ -852,12 +860,12 @@ class Template:
 				# Insert string instead
 				yield value
 	
-	async def render_string(self, args: dict=None, strip_string: bool=True, none_ok: bool=False) -> str:
+	async def render_string(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True) -> str:
 		"""
 		Render given template into string from fragments. Returns string 
 		representation of entire template rendered.
 		
-		`args` defines the arguments dict with arguemtns that are uniquly passed 
+		`scope` defines the arguments dict with arguemtns that are uniquly passed 
 		to each one-time block or expression wrapped into dict(), as locals.
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
@@ -866,16 +874,19 @@ class Template:
 		`none_ok` sets ignore mode for None result of the expression. If set to 
 		True, None result is not used in future template rendering.
 		
+		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
+		directly as locals. Else it is passed wrapped into dict(scope) call.
+		
 		Requires call to .init() if template was not initialized.
 		"""
 		
-		return ''.join([ f async for f in self.render_generator(args, strip_string, none_ok) ])
+		return ''.join([ f async for f in self.render_generator(scope, strip_string, none_ok, reuse_scope) ])
 	
-	async def render_file(self, filename: str, args: dict=None, strip_string: bool=True, none_ok: bool=False) -> None:
+	async def render_file(self, filename: str, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True) -> None:
 		"""
 		Render given template into file from fragments.
 		
-		`args` defines the arguments dict with arguemtns that are uniquly passed 
+		`scope` defines the arguments dict with arguemtns that are uniquly passed 
 		to each one-time block or expression wrapped into dict(), as locals.
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
@@ -884,11 +895,14 @@ class Template:
 		`none_ok` sets ignore mode for None result of the expression. If set to 
 		True, None result is not used in future template rendering.
 		
+		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
+		directly as locals. Else it is passed wrapped into dict(scope) call.
+		
 		Requires call to .init() if template was not initialized.
 		"""
 		
-		with open(filename, 'w') as file:
-			async for f in self.render_generator(args, strip_string, none_ok):
+		with open(filename, 'w', encoding='utf-8') as file:
+			async for f in self.render_generator(scope, strip_string, none_ok, reuse_scope):
 				file.write(f)
 	
 	def from_file(file: typing.Union[str, typing.TextIO], template_parser: TemplateParser=None, context: dict=None) -> 'Template':
@@ -907,7 +921,7 @@ class Template:
 		"""
 		
 		if isinstance(file, str):
-			with open(file, 'r') as file_obj:
+			with open(file, 'r', encoding='utf-8') as file_obj:
 				return Template(file_obj.read(), template_parser, context)
 		
 		return Template(file.read(), template_parser, context)
