@@ -1031,7 +1031,7 @@ class FileWatcherTemplate:
 			
 			# Load
 			self.template = Template.from_file(self.filename, self.template_parser, self.context)
-			self.template.init(
+			await self.template.init(
 				scope=self.init_scope, 
 				strip_string=self.init_strip_string, 
 				none_ok=self.init_none_ok, 
