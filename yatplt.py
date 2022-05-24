@@ -249,29 +249,43 @@ def autotablete(code: str):
 	"""
 	
 	# I don't care about cookies
+	code = code.rstrip()
+	
+	# Skip empty codee
+	if len(code) == 0:
+		return code
+	
+	# Lines
 	split_lines = code.split('\n')
 	lines = []
 	for line in split_lines:
-		if len(line.strip()):
-			lines.append(line.rstrip())
+		# if len(line.strip()):
+			# lines.append(line.rstrip())
+		lines.append(line.rstrip())
 	
-	# Skip empty
-	if len(lines) == 0 or len(lines[0]) == 0:
+	# Find first line with nonempty length
+	for first_nonempty_index, first_nonempty_line in enumerate(lines):
+		if len(first_nonempty_line) > 0:
+			break
+	else:
 		return code
-	
+		
 	# Skip noident
-	if lines[0][0] != '\t' and lines[0][0] != ' ':
+	if first_nonempty_line[0] != '\t' and first_nonempty_line[0] != ' ':
 		return code
 	
-	ident_char = lines[0][0]
-	min_ident = countsameleft(lines[0], ident_char)
+	# Get initial ident
+	ident_char = first_nonempty_line[0]
+	min_ident = countsameleft(first_nonempty_line, ident_char)
 	
 	# Remove excessive ident from each line
-	for i, line in enumerate(lines):
-		if countsameleft(line, ident_char) < min_ident:
-			raise SyntaxError('Ident of the first line does not match ident of the other lines')
-		
-		lines[i] = line[min_ident:]
+	for i in range(first_nonempty_index, len(lines)):
+		# Reident non-empty strings
+		if len(lines[i]):
+			if countsameleft(lines[i], ident_char) < min_ident:
+				raise SyntaxError('Ident of the first line does not match ident of the other lines')
+			
+			lines[i] = lines[i][min_ident:]
 	
 	return '\n'.join(lines)
 
@@ -582,11 +596,11 @@ class TemplateParser:
 			# Append missing string as text node
 			if last_source_index < ordered_tags[cursor][0]:
 				substring = source[last_source_index : ordered_tags[cursor][0]]
-				if self.strip_string:
-					substring = substring.strip()
 				
-				if len(substring):
-					template_fragments.append(StringTemplateFragment(substring))
+				# Ignore empty strings for optimization
+				stripped = substring.strip()
+				if len(stripped):
+					template_fragments.append(StringTemplateFragment(stripped if self.strip_string else substring))
 			
 			substring = source[ordered_tags[cursor][0] + len(tag_by_id[ordered_tags[cursor][1]]) : ordered_tags[cursor + 1][0]]
 			fragment_types_count[ordered_tags[cursor][1] // 2] += 1
@@ -613,11 +627,11 @@ class TemplateParser:
 		# Append the rest
 		if last_source_index < len(source):
 			substring = source[last_source_index : len(source)]
-			if self.strip_string:
-				substring = substring.strip()
 			
-			if len(substring):
-				template_fragments.append(StringTemplateFragment(substring))
+			# Ignore empty strings for optimization
+			stripped = substring.strip()
+			if len(stripped):
+				template_fragments.append(StringTemplateFragment(stripped if self.strip_string else substring))
 		
 		return template_fragments
 
