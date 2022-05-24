@@ -471,6 +471,9 @@ class TemplateParser:
 		
 		ordered_comment_tags = sorted(comment_start + comment_end, key=lambda x: x[0])
 		
+		# Operate on copy
+		offset = 0
+		
 		# Iterate over all comment open/close tags and remove these intervals from input data
 		if len(ordered_comment_tags):
 			
@@ -494,9 +497,9 @@ class TemplateParser:
 					
 					cursor += 1
 				
-				source = source[:comment_start_index] + source[ordered_comment_tags[cursor][0] + len(COMMENT_BLOCK_END):]
+				source = source[:comment_start_index - offset] + source[ordered_comment_tags[cursor][0] + len(COMMENT_BLOCK_END) - offset:]
+				offset += (ordered_comment_tags[cursor][0] + len(COMMENT_BLOCK_END)) - comment_start_index
 				cursor += 1
-		
 		
 		# ---> Second pass: parse all tags and sort list
 		
@@ -718,7 +721,7 @@ class Template:
 		
 		template_parser = template_parser or TemplateParser()
 		self.fragments = template_parser.parse(source) if source is not None else []
-		self.context = context
+		self.context = context or {}
 		
 		# Template should be initialized before use
 		self.initialized = True
@@ -734,7 +737,7 @@ class Template:
 		"""
 		return self.initialized
 	
-	async def init(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, init_ok: bool=False, reuse_scope: bool=True) -> 'Template':
+	async def init(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, init_ok: bool=False, wrap_scope: bool=False) -> 'Template':
 		"""
 		Performs initialization of the Template and evaluates all one-time-init 
 		blocks.
@@ -745,7 +748,8 @@ class Template:
 		```
 		
 		`scope` defines the arguments dict with arguemtns that are uniquly passed 
-		to each one-time block or expression wrapped into dict(), as locals.
+		to each one-time block or expression wrapped into dict(), as locals. Set 
+		to None to run code without locals().
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
 		evaluation.
@@ -756,8 +760,8 @@ class Template:
 		`init_ok` sets ignore already initialized state of template and does 
 		nothing if template is already initialized.
 		
-		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
-		directly as locals. Else it is passed wrapped into dict(scope) call.
+		`wrap_scope` enables scope wrapping. Scope is getting wrapped for each 
+		fragment render.
 		
 		After calling .init(), string representation of template will change and 
 		all one-time init fragments will be replaced with string fragments or 
@@ -769,18 +773,17 @@ class Template:
 				return self
 			raise RuntimeError('Template already initialized')
 		
-		scope = scope or {}
 		to_remove = []
 		for i, fragment in enumerate(self.fragments):
 			if fragment.is_one_time():
 				if isinstance(fragment, BlockTemplateFragment):
 					
 					to_remove.append(i)
-					await fragment.render(context=self.context, scope=(scope if reuse_scope else dict(scope)))
+					await fragment.render(context=self.context, scope=(scope if not wrap_scope else dict(scope or {})))
 					
 				elif isinstance(fragment, ExpressionTemplateFragment):
 					
-					value = await fragment.render(context=self.context, scope=(dict(scope) if scope else {}))
+					value = await fragment.render(context=self.context, scope=(scope if not wrap_scope else dict(scope or {})))
 					if not none_ok and value is None:
 						raise RuntimeError(f'Expression returned None at {fragment.evaluable.co_filename}')
 					
@@ -810,13 +813,14 @@ class Template:
 		self.initialized = True
 		return self
 	
-	async def render_generator(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True) -> typing.AsyncGenerator[str, None]:
+	async def render_generator(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, wrap_scope: bool=False) -> typing.AsyncGenerator[str, None]:
 		"""
 		Render given template using generator over fragments. Returns string 
 		representation of each fragment rendered.
 		
 		`scope` defines the arguments dict with arguemtns that are uniquly passed 
-		to each one-time block or expression wrapped into dict(), as locals.
+		to each one-time block or expression wrapped into dict(), as locals. Set 
+		to None to run code without locals().
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
 		evaluation.
@@ -824,8 +828,8 @@ class Template:
 		`none_ok` sets ignore mode for None result of the expression. If set to 
 		True, None result is not used in future template rendering.
 		
-		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
-		directly as locals. Else it is passed wrapped into dict(scope) call.
+		`wrap_scope` enables scope wrapping. Scope is getting wrapped for each 
+		fragment render.
 		
 		Requires call to .init() if template was not initialized.
 		"""
@@ -833,15 +837,14 @@ class Template:
 		if not self.initialized:
 			raise RuntimeError('Template not initialized')
 		
-		scope = scope or {}
 		for fragment in self.fragments:
 			if isinstance(fragment, BlockTemplateFragment):
 				
-				await fragment.render(context=self.context, scope=(scope if reuse_scope else dict(scope)))
+				await fragment.render(context=self.context, scope=(scope if not wrap_scope else dict(scope or {})))
 				
 			else:
 				
-				value = await fragment.render(context=self.context, scope=(dict(scope) if scope else {}))
+				value = await fragment.render(context=self.context, scope=(scope if not wrap_scope else dict(scope or {})))
 				if not none_ok and value is None:
 					raise RuntimeError(f'Expression returned None at {fragment.evaluable.co_filename}')
 				
@@ -861,13 +864,14 @@ class Template:
 				# Insert string instead
 				yield value
 	
-	async def render_string(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True) -> str:
+	async def render_string(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, wrap_scope: bool=False) -> str:
 		"""
 		Render given template into string from fragments. Returns string 
 		representation of entire template rendered.
 		
 		`scope` defines the arguments dict with arguemtns that are uniquly passed 
-		to each one-time block or expression wrapped into dict(), as locals.
+		to each one-time block or expression wrapped into dict(), as locals. Set 
+		to None to run code without locals().
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
 		evaluation.
@@ -875,20 +879,21 @@ class Template:
 		`none_ok` sets ignore mode for None result of the expression. If set to 
 		True, None result is not used in future template rendering.
 		
-		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
-		directly as locals. Else it is passed wrapped into dict(scope) call.
+		`wrap_scope` enables scope wrapping. Scope is getting wrapped for each 
+		fragment render.
 		
 		Requires call to .init() if template was not initialized.
 		"""
 		
-		return ''.join([ f async for f in self.render_generator(scope, strip_string, none_ok, reuse_scope) ])
+		return ''.join([ f async for f in self.render_generator(scope, strip_string, none_ok, wrap_scope) ])
 	
-	async def render_file(self, filename: str, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True) -> None:
+	async def render_file(self, filename: str, scope: dict=None, strip_string: bool=True, none_ok: bool=False, wrap_scope: bool=False) -> None:
 		"""
 		Render given template into file from fragments.
 		
 		`scope` defines the arguments dict with arguemtns that are uniquly passed 
-		to each one-time block or expression wrapped into dict(), as locals.
+		to each one-time block or expression wrapped into dict(), as locals. Set 
+		to None to run code without locals().
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
 		evaluation.
@@ -896,14 +901,14 @@ class Template:
 		`none_ok` sets ignore mode for None result of the expression. If set to 
 		True, None result is not used in future template rendering.
 		
-		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
-		directly as locals. Else it is passed wrapped into dict(scope) call.
+		`wrap_scope` enables scope wrapping. Scope is getting wrapped for each 
+		fragment render.
 		
 		Requires call to .init() if template was not initialized.
 		"""
 		
 		with open(filename, 'w', encoding='utf-8') as file:
-			async for f in self.render_generator(scope, strip_string, none_ok, reuse_scope):
+			async for f in self.render_generator(scope, strip_string, none_ok, wrap_scope):
 				file.write(f)
 	
 	def from_file(file: typing.Union[str, typing.TextIO], template_parser: TemplateParser=None, context: dict=None) -> 'Template':
@@ -976,7 +981,7 @@ class FileWatcherTemplate:
 			init_scope: dict=None, 
 			init_strip_string: bool=True,
 			init_none_ok: bool=False,
-			init_reuse_scope: bool=True
+			init_wrap_scope: bool=False
 		):
 		"""
 		Create shadow tempalte without loading. Loading is performed with 
@@ -995,7 +1000,7 @@ class FileWatcherTemplate:
 		self.init_scope        = init_scope
 		self.init_strip_string = init_strip_string
 		self.init_none_ok      = init_none_ok
-		self.init_reuse_scope  = init_reuse_scope
+		self.init_wrap_scope  = init_wrap_scope
 	
 	def is_up_to_date(self):
 		"""
@@ -1036,17 +1041,18 @@ class FileWatcherTemplate:
 				strip_string=self.init_strip_string, 
 				none_ok=self.init_none_ok, 
 				init_ok=True, 
-				reuse_scope=self.init_reuse_scope
+				wrap_scope=self.init_wrap_scope
 			)
 			self.timestamp = os.path.getmtime(self.filename)
 	
-	async def render_generator(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True, auto_reload: bool=True) -> typing.AsyncGenerator[str, None]:
+	async def render_generator(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, wrap_scope: bool=False, auto_reload: bool=True) -> typing.AsyncGenerator[str, None]:
 		"""
 		Render given template using generator over fragments. Returns string 
 		representation of each fragment rendered.
 		
 		`scope` defines the arguments dict with arguemtns that are uniquly passed 
-		to each one-time block or expression wrapped into dict(), as locals.
+		to each one-time block or expression wrapped into dict(), as locals. Set 
+		to None to run code without locals().
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
 		evaluation.
@@ -1054,8 +1060,8 @@ class FileWatcherTemplate:
 		`none_ok` sets ignore mode for None result of the expression. If set to 
 		True, None result is not used in future template rendering.
 		
-		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
-		directly as locals. Else it is passed wrapped into dict(scope) call.
+		`wrap_scope` enables scope wrapping. Scope is getting wrapped for each 
+		fragment render.
 		
 		Automatically reloads template on file change if `auto_reload=True`.
 		"""
@@ -1063,15 +1069,16 @@ class FileWatcherTemplate:
 		if auto_reload:
 			await self.update()
 		
-		return await self.template.render_generator(scope=scope, strip_string=strip_string, none_ok=none_ok, reuse_scope=reuse_scope)
+		return await self.template.render_generator(scope=scope, strip_string=strip_string, none_ok=none_ok, wrap_scope=wrap_scope)
 	
-	async def render_string(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True, auto_reload: bool=True) -> str:
+	async def render_string(self, scope: dict=None, strip_string: bool=True, none_ok: bool=False, wrap_scope: bool=False, auto_reload: bool=True) -> str:
 		"""
 		Render given template into string from fragments. Returns string 
 		representation of entire template rendered.
 		
 		`scope` defines the arguments dict with arguemtns that are uniquly passed 
-		to each one-time block or expression wrapped into dict(), as locals.
+		to each one-time block or expression wrapped into dict(), as locals. Set 
+		to None to run code without locals().
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
 		evaluation.
@@ -1079,8 +1086,8 @@ class FileWatcherTemplate:
 		`none_ok` sets ignore mode for None result of the expression. If set to 
 		True, None result is not used in future template rendering.
 		
-		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
-		directly as locals. Else it is passed wrapped into dict(scope) call.
+		`wrap_scope` enables scope wrapping. Scope is getting wrapped for each 
+		fragment render.
 		
 		Automatically reloads template on file change if `auto_reload=True`.
 		"""
@@ -1088,14 +1095,15 @@ class FileWatcherTemplate:
 		if auto_reload:
 			await self.update()
 		
-		return await self.template.render_string(scope=scope, strip_string=strip_string, none_ok=none_ok, reuse_scope=reuse_scope)
+		return await self.template.render_string(scope=scope, strip_string=strip_string, none_ok=none_ok, wrap_scope=wrap_scope)
 	
-	async def render_file(self, filename: str, scope: dict=None, strip_string: bool=True, none_ok: bool=False, reuse_scope: bool=True, auto_reload: bool=True) -> str:
+	async def render_file(self, filename: str, scope: dict=None, strip_string: bool=True, none_ok: bool=False, wrap_scope: bool=False, auto_reload: bool=True) -> str:
 		"""
 		Render given template into file from fragments.
 		
 		`scope` defines the arguments dict with arguemtns that are uniquly passed 
-		to each one-time block or expression wrapped into dict(), as locals.
+		to each one-time block or expression wrapped into dict(), as locals. Set 
+		to None to run code without locals().
 		
 		`strip_string` sets enable strip result of ExpressionTemplateFragment 
 		evaluation.
@@ -1103,8 +1111,8 @@ class FileWatcherTemplate:
 		`none_ok` sets ignore mode for None result of the expression. If set to 
 		True, None result is not used in future template rendering.
 		
-		`reuse_scope` sets scope reusage mode. If scope is reused, it is passed 
-		directly as locals. Else it is passed wrapped into dict(scope) call.
+		`wrap_scope` enables scope wrapping. Scope is getting wrapped for each 
+		fragment render.
 		
 		Requires call to .init() if template was not initialized.
 		"""
@@ -1112,7 +1120,7 @@ class FileWatcherTemplate:
 		if auto_reload:
 			await self.update()
 		
-		return await self.template.render_file(filename=filename, scope=scope, strip_string=strip_string, none_ok=none_ok, reuse_scope=reuse_scope)
+		return await self.template.render_file(filename=filename, scope=scope, strip_string=strip_string, none_ok=none_ok, wrap_scope=wrap_scope)
 
 	def __str__(self):
 		if self.timestamp is None:
@@ -1125,14 +1133,3 @@ class FileWatcherTemplate:
 			return None
 		
 		return self.template.__repr__()
-
-
-
-
-
-
-
-
-
-
-

@@ -52,10 +52,10 @@ template_string = """
 template = Template.from_string(source=template_string, context={})
 
 # Init
-await template.init(init_ok=True, strip_string=True, none_ok=True, reuse_scope=True)
+await template.init(init_ok=True, strip_string=True, none_ok=True, wrap_scope=False)
 
 # Render
-result = await tempalte.render_string(scope={}, strip_string=True, none_ok=True, reuse_scope=True)
+result = await tempalte.render_string(scope={}, strip_string=True, none_ok=True, wrap_scope=False)
 
 # Do anything
 print(result)
@@ -106,7 +106,7 @@ Following code defines global function that can be used in any code block later.
 !}1}
 ```
 
-Second approach is to use `reuse_scope` option that allows sharing variables between blocks:
+Second approach is to use `wrap_scope` option that allows sharing variables between blocks:
 ```python
 {1{!
 	def myfun(x):
@@ -136,7 +136,7 @@ This type of blocks and expressions is different from one-time init blocks becau
 This type of blocks also supports statement blocks that can define global variables too:
 ```python
 {{!
-	# Use global keyword or set reuse_scope=True
+	# Use global keyword or set wrap_scope=False
 	global gettimestamp
 	
 	# Enclosure local variable
@@ -255,7 +255,7 @@ scope = {
 # Set init_ok to True to ignore already initialized error
 # Set none_ok to True to ignore None value error in expressions
 # Set strip_string to True to strip output of the expression fragments
-# Set reuse_scope to True to allow sharing local variables between multiple blocks
+# Set wrap_scope to True to wrap scope for each fragment render
 template.init(scope=scope, init_ok=True, none_ok=True, strip_string=True)
 ```
 
@@ -266,7 +266,7 @@ scope = {
 	'action': 'Merp'
 }
 
-async for fragment in template.render_generator(scope=scope, init_ok=True, none_ok=True, strip_string=True, reuse_scope=True):
+async for fragment in template.render_generator(scope=scope, init_ok=True, none_ok=True, strip_string=True, wrap_scope=False):
 	print(fragment)
 ```
 
@@ -277,7 +277,7 @@ scope = {
 	'action': '"DROP TABLE *;--'
 }
 
-print(await template.render_string(scope=scope, init_ok=True, none_ok=True, strip_string=True, reuse_scope=True))
+print(await template.render_string(scope=scope, init_ok=True, none_ok=True, strip_string=True, wrap_scope=False))
 ```
 
 #### Simple rendering to file:
@@ -287,7 +287,7 @@ scope = {
 	'action': 'hak for mani'
 }
 
-print(await template.render_file('output.html', scope=scope, init_ok=True, none_ok=True, strip_string=True, reuse_scope=True))
+print(await template.render_file('output.html', scope=scope, init_ok=True, none_ok=True, strip_string=True, wrap_scope=False))
 ```
 
 # File watching based templates
@@ -304,7 +304,7 @@ tmpl = yatplt.FileWatcherTemplate(
 	init_scope={
 		'hello': 'world'
 	},
-	init_reuse_scope=True
+	init_wrap_scope=False
 )
 
 # This call automatically loads tempalte from file, 
