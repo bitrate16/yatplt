@@ -327,6 +327,10 @@ class StringTemplateFragment(TemplateFragment):
 	Represents single template fragment containing plain string value
 	"""
 	
+	__slots__ = (
+		'value'
+	)
+	
 	def __init__(self, value: str):
 		super().__init__()
 		self.value = value
@@ -349,6 +353,14 @@ class ExpressionTemplateFragment(TemplateFragment):
 	Represents single template fragment containing executable expression that 
 	supports eval(). Can contain both: one pass and multiple pass expressions
 	"""
+	
+	__slots__ = (
+		'evaluable',
+		'one_time',
+		'expression_start_tag',
+		'expression_end_tag',
+		'source_string'
+	)
 	
 	def __init__(self, source_string: str, one_time: bool = False,	expression_start_tag: str=None, 
 																	expression_end_tag: str=None,
@@ -392,6 +404,14 @@ class BlockTemplateFragment(TemplateFragment):
 	supports exec()/eval(). Can contain both: one pass and multiple pass 
 	expressions
 	"""
+	
+	__slots__ = (
+		'executable',
+		'one_time',
+		'block_start_tag',
+		'block_end_tag',
+		'source_string'
+	)
 	
 	def __init__(self, source_string: str, one_time: bool = False,	block_start_tag: str=None, 
 																	block_end_tag: str=None,
@@ -440,6 +460,21 @@ class TemplateParser:
 	`save_source_string` enables parser to save source code inside TemplateFragment so 
 	it can be printed later.
 	"""
+	
+	__slots__ = (
+		'one_time_block_start',
+		'one_time_block_end',
+		'one_time_expression_start',
+		'one_time_expression_end',
+		'comment_block_start',
+		'comment_block_end',
+		'block_start',
+		'block_end',
+		'expression_start',
+		'expression_end',
+		'save_source_string',
+		'strip_string'
+	)
 	
 	def __init__(self, one_time_block_start: str=ONE_TIME_BLOCK_START, 
 						one_time_block_end: str=ONE_TIME_BLOCK_END,
@@ -719,6 +754,12 @@ class Template:
 	```
 	"""
 	
+	__slots__ = (
+		'fragments',
+		'context',
+		'initialized'
+	)
+	
 	def __init__(self, source: str, template_parser: TemplateParser=None, context: dict=None):
 		"""
 		Initialize template from the given source and parse it.
@@ -987,6 +1028,19 @@ class FileWatcherTemplate:
 	additional up_to_date flag.
 	"""
 	
+	__slots__ = (
+		'filename',
+		'timestamp',
+		'template',
+		'template_lock',
+		'template_parser',
+		'context',
+		'init_scope',
+		'init_strip_string',
+		'init_none_ok',
+		'init_wrap_scope'
+	)
+	
 	def __init__(
 			self, 
 			filename: str, 
@@ -998,7 +1052,7 @@ class FileWatcherTemplate:
 			init_wrap_scope: bool=False
 		):
 		"""
-		Create shadow tempalte without loading. Loading is performed with 
+		Create shadow template without loading. Loading is performed with 
 		manual call to `update()` or on `.render()` call.
 		
 		`init_` parameters are used to define arguments for late `.init()` call.
@@ -1014,25 +1068,41 @@ class FileWatcherTemplate:
 		self.init_scope        = init_scope
 		self.init_strip_string = init_strip_string
 		self.init_none_ok      = init_none_ok
-		self.init_wrap_scope  = init_wrap_scope
+		self.init_wrap_scope   = init_wrap_scope
 	
 	def is_up_to_date(self):
 		"""
 		Returns True if Template is up to date. Template us up to date if it was 
 		loaded and it's file still exists and have modification date less than 
-		it was when tempalte has been loaded.
+		it was when template has been loaded.
 		"""
 		
 		return not (self.timestamp is None or not os.path.exists(self.filename) or os.path.getmtime(self.filename) > self.timestamp)
 	
+	def get_template(self):
+		"""
+		Returns current internal instance of the template or None is no template 
+		has been loaded yet.
+		"""
+		
+		return self.template
+	
+	def get_timestamp(self):
+		"""
+		Returns current internal template file timestamp or None is no template 
+		has been loaded yet.
+		"""
+		
+		return self.timestamp
+	
 	async def update(self):
 		"""
-		Performs updating of the tempalte from file. if `is_up_to_date()` returs 
+		Performs updating of the template from file. if `is_up_to_date()` returs 
 		True, does nothing.
 		
 		If failure occurs, raises error depending on the situation.
 		Uses async lock to perfom syncronization between calls to prevent race 
-		condition and multiple parsings per tempalte.
+		condition and multiple parsings per template.
 		"""
 		
 		if self.is_up_to_date():
